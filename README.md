@@ -22,6 +22,7 @@ plugins/<name>/        # published plugins — one wit-bindgen component per dir
   manifest.toml        # name, version, wasm_path, capabilities, permissions
   README.md
 wit/v0/                # vendored ZeroClaw plugin WIT contract (the ABI plugins build against)
+wit/next/              # the same contract at an unreleased host (pinned by wit/NEXT_REF)
 registry.json          # GENERATED index — published by CI, do not hand-edit
 tools/build-registry.py
 .github/workflows/publish.yml
@@ -36,6 +37,12 @@ host grants only the capabilities a plugin's `manifest.toml` declares.
 — it is the contract the host actually implements. Plugins requiring host
 capabilities beyond it (e.g. HTTP egress) are blocked on the upstream host
 capability interface ([zeroclaw#8135](https://github.com/zeroclaw-labs/zeroclaw/issues/8135)).
+
+`wit/next/` is the same directory at a newer ZeroClaw commit that no release
+includes yet, pinned by `wit/NEXT_REF`. It carries interfaces released hosts
+lack, such as durable `state`, so only a `registry = false` plugin may bind it
+(see [Host-gated source plugins](#host-gated-source-plugins)). CI checks
+`wit/v0/` and `wit/next/` byte for byte against their pins.
 
 ## How install works
 
@@ -106,6 +113,8 @@ and its layout is the required format:
    `version`, `wasm_path`, `capabilities`, and only permissions the host
    actually supports (`http_client`, `file_read`, `file_write`, `config_read`,
    `memory_read`, `memory_write`, `socket_client`, `websocket_client`).
+   `state_read` and `state_write` are host-gated: released hosts reject them,
+   so CI accepts them only in a `registry = false` plugin.
 5. Build it:
    ```bash
    rustup target add wasm32-wasip2
@@ -135,6 +144,12 @@ registry = false
 The publish workflow skips those plugins entirely: no build, no zip, and no
 `registry.json` entry. Remove the guard only when stock hosts can run the
 plugin and the protocol parity tests are in place.
+
+A plugin that needs an interface only an unreleased host provides binds
+`wit/next/` instead of `wit/v0/`, and it may request the host-gated
+`state_read` and `state_write` permissions. Both require `registry = false`:
+CI rejects a host-gated permission in a plugin headed for the registry, and
+builds such a plugin without `wit/next/`.
 
 ## Run your own registry
 

@@ -59,13 +59,17 @@ fmt
   files, runs the registry-builder unit tests, requires source changes to leave
   the generated `registry.json` release identities and history against the
   base, allows only manifest-derived metadata refreshes, and checks generated
-  metadata against canonical `manifest.toml` data.
+  metadata against canonical `manifest.toml` data. The host-gated `state_read`
+  and `state_write` permissions are accepted only in a `registry = false`
+  plugin, because released hosts reject a manifest that requests them.
 - `wit-drift` fetches and cryptographically verifies the ZeroClaw Git object at
   the revision in `wit/UPSTREAM_REF`, then
   requires its `wit/v0` directory to be byte-identical to this repository's
   vendored directory. Advance the pin and vendored WIT together in one
   reviewed change; never point the pin at a merely compatible or partially
-  matching tree.
+  matching tree. When `wit/next` exists, the same check compares it with
+  ZeroClaw's `wit/v0` at `wit/NEXT_REF`, an unreleased host revision; the pin
+  and the directory must be added and removed together.
 - `components` uses bounded shards and validates every selected plugin with
   locked host tests, host Clippy, `wasm32-wasip2` Clippy, and a release WASM
   build. Tests and builds are always strict. A plugin changed by the current
@@ -75,16 +79,20 @@ fmt
   same-version component would violate its immutable package digest. Plugins
   marked `registry = false` receive the same validation and are staged as
   run-internal evidence, but the registry builder omits them from release
-  packages.
+  packages. Each plugin builds from a snapshot of the committed `wit/` tree;
+  only a `registry = false` plugin's snapshot includes `wit/next`, so a plugin
+  headed for the registry cannot bind the unreleased contract.
 - `package` merges the staged shard artifacts and performs a dry-run registry
   build. The staged directory identities must exactly match the existing shard
   matrix before packaging; missing, substituted, or unexpected components fail
   closed. An unchanged historical identity reuses its immutable ledger entry
   instead of assuming a newer compiler can reproduce old WASM. A plugin marked
   as a changed release input by that same matrix may not reuse an existing
-  `<name>@<version>`; its canonical manifest version must advance. A vendored
-  WIT change marks every selected plugin as a release input, so a coordinated
-  ABI update cannot silently leave old packages behind. The resulting
+  `<name>@<version>`; its canonical manifest version must advance. A `wit/v0`
+  change marks every selected plugin as a release input, so a coordinated
+  ABI update cannot silently leave old packages behind. A `wit/next` change
+  forces a full validation sweep but marks no release inputs, because only
+  `registry = false` plugins bind it. The resulting
   `registry-dry-run` artifact is both available for maintainer inspection and
   the sole input to publication; publication never creates a second archive
   from the staged bytes. Generation requires a fresh output directory, and an
@@ -187,8 +195,9 @@ The following work is deliberately deferred until its trigger is true.
 - If validation logic regresses, revert the offending pipeline change while
   preserving the frozen gate name. Use the administrator ruleset bypass only
   as a documented break-glass action, then restore a working gate immediately.
-- If a WIT update is wrong, revert `wit/v0` and `wit/UPSTREAM_REF` as a pair to
-  the last byte-identical revision. Do not weaken the drift comparison.
+- If a WIT update is wrong, revert `wit/v0` and `wit/UPSTREAM_REF` (or
+  `wit/next` and `wit/NEXT_REF`) as a pair to the last byte-identical
+  revision. Do not weaken the drift comparison.
 - Before publication, a plugin change can be reverted normally. After an asset
   is published, never delete, overwrite, or reuse its version. Keep historical
   assets and registry entries intact, revert host selection to a compatible
