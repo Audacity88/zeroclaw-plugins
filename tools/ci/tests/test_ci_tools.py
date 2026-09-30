@@ -47,6 +47,21 @@ def valid_row(**overrides: str) -> dict[str, str]:
     return row
 
 
+def vendored_wit_files(*, without_next: bool = False) -> list[str]:
+    """List the committed wit/ tree the way the fake cargo lists a snapshot."""
+    wit_root = REPOSITORY_ROOT / "wit"
+    files = (
+        path.relative_to(wit_root).as_posix()
+        for path in wit_root.rglob("*")
+        if path.is_file()
+    )
+    return sorted(
+        f"./{path}"
+        for path in files
+        if not (without_next and path.startswith("next/"))
+    )
+
+
 class ReportSchemaTests(unittest.TestCase):
     def test_schema_has_exactly_twenty_columns_and_wasm_clippy_position(self) -> None:
         self.assertEqual(len(report_schema.COLUMNS), 20)
@@ -200,6 +215,18 @@ class MatrixPlanTests(unittest.TestCase):
         ):
             plan = plan_matrix.make_plan(root, "pull_request", "origin/main")
         self.assertEqual(plan["matrix"]["include"][0]["release_plugins"], [])
+
+    def test_next_wit_forces_full_validation_without_release_inputs(self) -> None:
+        temp, root = self.make_repository(2)
+        self.addCleanup(temp.cleanup)
+        for changed in ("wit/next/state.wit", "wit/NEXT_REF"):
+            with self.subTest(changed=changed):
+                with mock.patch.object(
+                    plan_matrix, "git_changed_paths", return_value=[changed]
+                ):
+                    plan = plan_matrix.make_plan(root, "pull_request", "origin/main")
+                self.assertEqual(plan["mode"], "full")
+                self.assertEqual(plan["matrix"]["include"][0]["release_plugins"], [])
 
     def test_workflow_tools_registry_and_wit_changes_force_full(self) -> None:
         for changed in (
@@ -506,6 +533,9 @@ fi
 if [[ "$1" == "build" && "${FAKE_MUTATE_SOURCE:-0}" == "1" ]]; then
   printf '%s\n' '# mutation' >> manifest.toml
 fi
+if [[ "$1" == "build" && "${FAKE_LIST_WIT:-0}" == "1" ]]; then
+  (cd ../../wit && find . -type f | LC_ALL=C sort) > "$FAKE_CARGO_LOG.wit"
+fi
 exit 0
 """
         )
@@ -598,6 +628,23 @@ exit 0
         self.assertEqual(row["build_rc"], "125")
         self.assertEqual(row["artifact"], "")
         self.assertFalse((staged / "redact-text").exists())
+
+    def snapshot_wit_files(self, plugin: str) -> list[str]:
+        temp, root, report, staged, cargo_log, result = self.run_validator(
+            plugin, FAKE_LIST_WIT="1"
+        )
+        self.addCleanup(temp.cleanup)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return (root / "cargo.log.wit").read_text().splitlines()
+
+    def test_host_gated_plugin_snapshot_carries_the_whole_wit_tree(self) -> None:
+        self.assertEqual(self.snapshot_wit_files("amqp"), vendored_wit_files())
+
+    def test_registry_bound_plugin_snapshot_withholds_wit_next(self) -> None:
+        self.assertEqual(
+            self.snapshot_wit_files("redact-text"),
+            vendored_wit_files(without_next=True),
+        )
 
     def test_source_mutation_is_rejected_and_canonical_inputs_are_not_staged(self) -> None:
         temp, root, report, staged, cargo_log, result = self.run_validator(

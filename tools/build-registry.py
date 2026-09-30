@@ -82,6 +82,10 @@ KNOWN_PERMISSIONS = {
     "socket_client",
     "websocket_client",
 }
+# Accepted by the host at wit/NEXT_REF, but released hosts reject a manifest
+# that requests them, so only a `registry = false` plugin may. Move them into
+# KNOWN_PERMISSIONS when wit/UPSTREAM_REF reaches a release that accepts them.
+HOST_GATED_PERMISSIONS = {"state_read", "state_write"}
 KNOWN_SENDER_MATCH = {"exact", "case_insensitive", "handle", "email"}
 
 # `manifest.toml` is canonical. These are the manifest-owned fields projected
@@ -210,10 +214,19 @@ def validate(
     if not isinstance(registry, bool):
         errors.append("registry must be a boolean when present")
 
-    _, permission_errors = validate_known_array(
-        meta, "permissions", KNOWN_PERMISSIONS, required=False
+    permissions, permission_errors = validate_known_array(
+        meta,
+        "permissions",
+        KNOWN_PERMISSIONS | HOST_GATED_PERMISSIONS,
+        required=False,
     )
     errors.extend(permission_errors)
+    if registry is not False:
+        errors.extend(
+            f"permission {permission!r} is rejected by released hosts; "
+            "set registry = false until a host release accepts it"
+            for permission in sorted(set(permissions) & HOST_GATED_PERMISSIONS)
+        )
 
     caps = meta.get("capabilities")
     if not isinstance(caps, list):
