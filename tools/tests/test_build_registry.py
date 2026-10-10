@@ -23,6 +23,8 @@ def write_plugin(
     wasm: bytes = b"wasm-v1",
     provides: str | None = "telegram",
     sender_match: str | None = "exact",
+    permissions: tuple[str, ...] = ("config_read",),
+    registry: bool | None = None,
 ) -> None:
     plugin = root / "bridge"
     plugin.mkdir(parents=True)
@@ -33,8 +35,10 @@ def write_plugin(
         'author = "ZeroClaw Labs"',
         'wasm_path = "bridge.wasm"',
         'capabilities = ["channel"]',
-        'permissions = ["config_read"]',
+        f"permissions = {json.dumps(list(permissions))}",
     ]
+    if registry is not None:
+        lines.append(f"registry = {str(registry).lower()}")
     if provides is not None:
         lines.append(f'provides = "{provides}"')
     if sender_match is not None:
@@ -266,6 +270,57 @@ class BuildRegistryTests(unittest.TestCase):
         )
         self.assertNotEqual(checked.returncode, 0)
         self.assertIn("does not match canonical manifest version", checked.stderr)
+
+    def test_host_gated_permissions_require_the_registry_opt_out(self) -> None:
+        registry = self.root / "registry.json"
+        registry.write_text('{"plugins": []}\n')
+        gated = ("state_read", "state_write")
+
+        opted_out = self.root / "opted-out"
+        write_plugin(opted_out, permissions=gated, registry=False)
+        accepted = run_registry(
+            "--source-plugins", opted_out, "--check-metadata", registry
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        published = self.root / "published"
+        write_plugin(published, permissions=gated)
+        refused = run_registry(
+            "--source-plugins", published, "--check-metadata", registry
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        for permission in gated:
+            self.assertIn(
+                f"permission {permission!r} is rejected by released hosts",
+                refused.stderr,
+            )
+
+        misspelled = self.root / "misspelled"
+        write_plugin(misspelled, permissions=("state_admin",), registry=False)
+        unknown = run_registry(
+            "--source-plugins", misspelled, "--check-metadata", registry
+        )
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertIn("unknown permissions value 'state_admin'", unknown.stderr)
+
+    def test_packaging_never_publishes_host_gated_permissions(self) -> None:
+        staged = self.root / "staged"
+        write_plugin(staged, permissions=("state_read",))
+        refused_out = self.root / "refused"
+        refused = self.build(staged, refused_out)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertIn(
+            "permission 'state_read' is rejected by released hosts", refused.stderr
+        )
+        self.assertFalse((refused_out / "bridge-0.1.0.zip").exists())
+
+        gated = self.root / "gated"
+        write_plugin(gated, permissions=("state_read",), registry=False)
+        skipped_out = self.root / "skipped"
+        skipped = self.build(gated, skipped_out)
+        self.assertEqual(skipped.returncode, 0, skipped.stderr)
+        self.assertIn("skipping bridge (registry = false", skipped.stdout)
+        self.assertFalse((skipped_out / "bridge-0.1.0.zip").exists())
 
     def test_new_version_is_appended_to_registry_history(self) -> None:
         staged = self.root / "staged"
