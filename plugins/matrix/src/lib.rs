@@ -4,7 +4,7 @@ pub mod matrix;
 #[cfg(target_family = "wasm")]
 mod component {
     wit_bindgen::generate!({
-        path: "../../wit/next",
+        path: "../../wit/current",
         world: "channel-plugin",
         features: ["plugins-wit-v0"],
     });
