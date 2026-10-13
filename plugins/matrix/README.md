@@ -1,6 +1,8 @@
 # Matrix text-only channel plugin
 
-Matrix 0.3.0 is an opt-in current-host compatibility candidate. It binds the experimental `wit/next` contract with `plugins-wit-v0` and is excluded from registry publication by `registry = false`. Build it with the host revision pinned in `wit/NEXT_REF`; this unfrozen interface does not promise compatibility with released hosts. Published Matrix 0.1.0 and 0.2.0 packages remain unchanged.
+Matrix 0.3.0 is an opt-in current-host compatibility candidate. It binds the experimental `wit/current` contract with `plugins-wit-v0` and is excluded from registry publication by `registry = false`. Build it with the host revision pinned in `wit/CURRENT_REF`; this unfrozen interface does not promise compatibility with released hosts. Published Matrix 0.1.0 and 0.2.0 packages remain unchanged.
+
+Registry publication requires a matching plugin-capable host release and install, alias-binding and real-host Matrix checks against its downloaded artifact. The current pin is preparation evidence, not a released-host guarantee. Matrix is the only guest admitted to publish against this contract; the shared CI policy preserves unrelated package identities and requires a new Matrix version after any subsequently published contract changes.
 
 Use an explicit `channels.plugin.<alias>` instance with this package and the host's supported plugin configuration surface. `provides = "matrix"` describes the channel; it does not activate a native mirror or read `channels.matrix.*`. Retain native Matrix for encrypted rooms, recovery, password login, media and durable sessions.
 
